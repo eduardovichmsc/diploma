@@ -1,0 +1,681 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Диаграммы проекта</title>
+<style>
+  :root { --bg:#f6f7f9; --card:#fff; --text:#1d2330; --muted:#5b6475; --accent:#2f5fd0; --border:#e2e5eb; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:15px/1.5 "Segoe UI", Arial, sans-serif; }
+  header { max-width:1240px; margin:0 auto; padding:28px 16px 12px; }
+  h1 { margin:0 0 4px; font-size:24px; }
+  .sub { color:var(--muted); margin:0; }
+  nav { position:sticky; top:0; z-index:5; background:rgba(246,247,249,.96); border-bottom:1px solid var(--border); }
+  nav .in { max-width:1240px; margin:0 auto; padding:10px 16px; display:flex; gap:6px; flex-wrap:wrap; align-items:center; }
+  nav a { font-size:13px; padding:3px 10px; border:1px solid var(--border); border-radius:999px; color:var(--text); text-decoration:none; background:#fff; }
+  nav a:hover { border-color:var(--accent); color:var(--accent); }
+  nav .sp { flex:1; }
+  main { max-width:1240px; margin:0 auto; padding:16px; }
+  section { background:var(--card); border:1px solid var(--border); border-radius:12px; padding:20px; margin:0 0 20px; scroll-margin-top:64px; }
+  .head { display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap; align-items:flex-start; }
+  h2 { margin:0; font-size:19px; }
+  .num { color:var(--accent); margin-right:6px; }
+  .desc { color:var(--muted); margin:6px 0 14px; max-width:860px; }
+  .btns { display:flex; gap:6px; flex-wrap:wrap; }
+  button { font:inherit; font-size:13px; padding:5px 12px; border-radius:8px; border:1px solid var(--border); background:#fff; color:var(--text); cursor:pointer; }
+  button:hover { border-color:var(--accent); color:var(--accent); }
+  button.primary { background:var(--accent); border-color:var(--accent); color:#fff; }
+  .dia { overflow-x:auto; text-align:center; }
+  .dia svg { max-width:100%; height:auto; }
+  .err { color:#b42318; white-space:pre-wrap; text-align:left; font:12px/1.4 Consolas, monospace; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Система аренды автомобилей с интеграцией микроконтроллерного аппаратного модуля</h1>
+  <p class="sub">Диаграммы проекта. PNG и SVG скачиваются кнопками, «Код» копирует исходник Mermaid (его можно вставить в mermaid.live или draw.io).</p>
+</header>
+<nav><div class="in" id="nav"><span class="sp"></span><button class="primary" id="allPng">Скачать все PNG</button></div></nav>
+<main id="main"></main>
+
+<script type="module">
+import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11.4.1/dist/mermaid.esm.min.mjs';
+
+const D = [
+{ id:'01_architecture', title:'Общая архитектура системы',
+  desc:'Аппаратный модуль в автомобиле читает данные ЭБУ по OBD-II и датчики, передаёт их по MQTT через GSM/LTE на сервер. Backend на NestJS обрабатывает телеметрию, хранит данные в PostgreSQL и отдаёт их веб-приложению на React по REST и WebSocket.',
+  code:`flowchart LR
+  subgraph CAR["Автомобиль"]
+    direction TB
+    ECU["ЭБУ автомобиля"]
+    GPS["GPS-приёмник<br/>NEO-6M"]
+    IMU["Акселерометр<br/>MPU6050"]
+    RFID["RFID-считыватель<br/>RC522"]
+    MOD["Аппаратный модуль<br/>ESP32"]
+    REL["Реле: замки<br/>и цепь запуска"]
+    ECU -->|"OBD-II / CAN"| MOD
+    GPS -->|UART| MOD
+    IMU -->|I2C| MOD
+    RFID -->|SPI| MOD
+    MOD -->|GPIO| REL
+  end
+  subgraph SRV["Сервер (Docker Compose)"]
+    direction TB
+    MQ["MQTT-брокер<br/>Mosquitto"]
+    API["Backend<br/>NestJS"]
+    DB[("PostgreSQL")]
+    MQ <--> API
+    API <--> DB
+  end
+  subgraph CLI["Пользователи"]
+    direction TB
+    U1(("Арендатор"))
+    U2(("Арендодатель"))
+    U3(("Администратор"))
+    WEB["Веб-приложение<br/>React"]
+    U1 --> WEB
+    U2 --> WEB
+    U3 --> WEB
+  end
+  MOD <-->|"MQTT по GSM/LTE<br/>телеметрия, события, команды"| MQ
+  WEB <-->|"HTTPS: REST API<br/>+ WebSocket"| API
+  classDef hw fill:#fff4e5,stroke:#d97706,color:#1d2330
+  classDef sw fill:#eaf1ff,stroke:#2f5fd0,color:#1d2330
+  classDef db fill:#e9f8ef,stroke:#15803d,color:#1d2330
+  classDef actor fill:#ffffff,stroke:#1d2330,stroke-width:2px,color:#1d2330
+  class ECU,GPS,IMU,RFID,MOD,REL hw
+  class MQ,API,WEB sw
+  class DB db
+  class U1,U2,U3 actor`},
+
+{ id:'02_use_cases', title:'Диаграмма вариантов использования',
+  desc:'Четыре актора: арендатор, арендодатель (бизнес), администратор платформы и аппаратный модуль. Начало и завершение аренды включают автоматическую фиксацию показаний модулем.',
+  code:`flowchart LR
+  R(("Арендатор"))
+  P(("Арендодатель<br/>(бизнес)"))
+  A(("Администратор<br/>платформы"))
+  M(("Аппаратный<br/>модуль"))
+  subgraph SR["Арендатор"]
+    direction TB
+    r1(["Регистрация и вход"])
+    r2(["Поиск и фильтрация авто"])
+    r3(["Бронирование"])
+    r4(["Оплата"])
+    r5(["Начать аренду"])
+    r6(["Завершить аренду"])
+    r7(["История поездок и чеки"])
+    r8(["Отзыв о поездке"])
+  end
+  subgraph SP["Арендодатель"]
+    direction TB
+    p1(["Регистрация компании"])
+    p2(["Управление автопарком"])
+    p3(["Настройка тарифов"])
+    p4(["Управление бронированиями"])
+    p5(["Мониторинг авто на карте"])
+    p6(["Телеметрия и ошибки DTC"])
+    p7(["Управление сотрудниками"])
+    p8(["Отчёты и аналитика"])
+  end
+  subgraph SA["Администратор"]
+    direction TB
+    a1(["Модерация арендодателей"])
+    a2(["Регистрация модулей"])
+    a3(["Управление пользователями"])
+    a4(["Статистика платформы"])
+  end
+  subgraph SM["Модуль"]
+    direction TB
+    m1(["Передача телеметрии"])
+    m2(["Фиксация пробега и топлива"])
+    m3(["Управление замками<br/>и запуском"])
+    m4(["Отправка событий и DTC"])
+  end
+  R --- r1 & r2 & r3 & r4 & r5 & r6 & r7 & r8
+  P --- p1 & p2 & p3 & p4 & p5 & p6 & p7 & p8
+  A --- a1 & a2 & a3 & a4
+  M --- m1 & m2 & m3 & m4
+  r5 -.->|"«include»"| m2
+  r6 -.->|"«include»"| m2
+  r5 -.->|"«include»"| m3
+  classDef actor fill:#ffffff,stroke:#1d2330,stroke-width:2px,color:#1d2330
+  classDef uc fill:#eaf1ff,stroke:#2f5fd0,color:#1d2330
+  classDef ucm fill:#fff4e5,stroke:#d97706,color:#1d2330
+  class R,P,A,M actor
+  class r1,r2,r3,r4,r5,r6,r7,r8,p1,p2,p3,p4,p5,p6,p7,p8,a1,a2,a3,a4 uc
+  class m1,m2,m3,m4 ucm`},
+
+{ id:'03_deployment', title:'Диаграмма развёртывания',
+  desc:'Все серверные компоненты запускаются в контейнерах Docker Compose. nginx отдаёт собранный фронтенд и проксирует API и WebSocket. Модули подключаются к брокеру по MQTT с шифрованием TLS.',
+  code:`flowchart LR
+  BR["Браузер пользователя"]
+  DEVC["Модуль ESP32<br/>в автомобиле"]
+  subgraph VPS["Сервер / VPS (Docker Compose)"]
+    direction TB
+    NG["nginx<br/>:443"]
+    FE["Статика React<br/>(сборка Vite)"]
+    API["api: NestJS<br/>:3000"]
+    MQ["mosquitto<br/>:8883 TLS"]
+    PG[("postgres<br/>:5432")]
+    NG --> FE
+    NG -->|"/api, /socket.io"| API
+    API <--> MQ
+    API --> PG
+  end
+  BR -->|HTTPS| NG
+  DEVC <-->|"MQTT over TLS<br/>(GSM/LTE)"| MQ
+  classDef hw fill:#fff4e5,stroke:#d97706,color:#1d2330
+  classDef sw fill:#eaf1ff,stroke:#2f5fd0,color:#1d2330
+  classDef db fill:#e9f8ef,stroke:#15803d,color:#1d2330
+  class DEVC hw
+  class NG,FE,API,MQ,BR sw
+  class PG db`},
+
+{ id:'04_backend_modules', title:'Модульная структура backend (NestJS)',
+  desc:'Backend разбит на независимые модули NestJS. Есть три точки входа: REST для веб-клиента, MQTT-обработчик для модулей и WebSocket-шлюз для данных в реальном времени.',
+  code:`flowchart TB
+  subgraph IN["Точки входа"]
+    direction LR
+    REST["REST-контроллеры<br/>(JWT + RBAC)"]
+    MQTTC["MQTT-обработчик"]
+    WS["WebSocket-шлюз"]
+  end
+  subgraph CORE["Модули приложения"]
+    direction LR
+    AUTH["auth"]
+    USERS["users"]
+    PROV["providers"]
+    VEH["vehicles"]
+    PRICE["pricing"]
+    BOOK["bookings"]
+    RENT["rentals"]
+    PAY["payments"]
+    REV["reviews"]
+    ADM["admin"]
+    DEV["devices"]
+    TEL["telemetry"]
+    ALR["alerts"]
+    SCORE["driving-score"]
+  end
+  REST --> AUTH & PROV & VEH & BOOK & RENT & REV & ADM
+  MQTTC --> TEL
+  AUTH --> USERS
+  PROV --> USERS
+  VEH --> PROV
+  PRICE --> VEH
+  BOOK --> VEH & PRICE
+  RENT --> BOOK & PRICE & DEV & PAY
+  DEV -->|"команды"| MQTTC
+  TEL --> ALR & SCORE
+  TEL --> WS
+  ALR --> WS
+  CORE --> ORM["Prisma ORM"]
+  ORM --> DB[("PostgreSQL")]
+  classDef sw fill:#eaf1ff,stroke:#2f5fd0,color:#1d2330
+  classDef io fill:#f3e8ff,stroke:#7c3aed,color:#1d2330
+  classDef db fill:#e9f8ef,stroke:#15803d,color:#1d2330
+  class AUTH,USERS,PROV,VEH,PRICE,BOOK,RENT,PAY,REV,ADM,DEV,TEL,ALR,SCORE sw
+  class REST,MQTTC,WS io
+  class ORM,DB db`},
+
+{ id:'05_er_diagram', title:'ER-диаграмма базы данных',
+  desc:'Арендодатель хранится в общей таблице rental_providers с полем type (BUSINESS / INDIVIDUAL). Реквизиты лежат в отдельных профилях, поэтому тип «физлицо» добавляется без изменения остальной схемы. Телеметрия и события привязаны к модулю и к конкретной аренде.',
+  code:`erDiagram
+  USERS {
+    uuid id PK
+    string email UK
+    string password_hash
+    string full_name
+    string phone
+    string driver_license_no
+    enum platform_role "USER | ADMIN"
+  }
+  RENTAL_PROVIDERS {
+    uuid id PK
+    enum type "BUSINESS | INDIVIDUAL"
+    enum status "PENDING | ACTIVE | REJECTED | BLOCKED"
+    string display_name
+    float rating
+  }
+  BUSINESS_PROFILES {
+    uuid provider_id PK, FK
+    string legal_name
+    string tax_id UK
+    string legal_address
+    string bank_account
+  }
+  INDIVIDUAL_PROFILES {
+    uuid provider_id PK, FK
+    string verification_status "зарезервировано"
+  }
+  PROVIDER_MEMBERS {
+    uuid id PK
+    uuid provider_id FK
+    uuid user_id FK
+    enum role "OWNER | MANAGER"
+  }
+  VEHICLES {
+    uuid id PK
+    uuid provider_id FK
+    string brand
+    string model
+    int year
+    string plate_number UK
+    string vin UK
+    enum transmission
+    enum fuel_type
+    string city
+    enum status "AVAILABLE | RENTED | MAINTENANCE"
+  }
+  TARIFFS {
+    uuid id PK
+    uuid vehicle_id FK
+    decimal price_per_hour
+    decimal price_per_day
+    int km_limit_per_day
+    decimal overmileage_price
+    decimal fuel_price_per_percent
+    decimal deposit
+  }
+  DEVICES {
+    uuid id PK
+    string serial UK
+    string secret_hash
+    uuid vehicle_id FK
+    string firmware_version
+    timestamp last_seen_at
+  }
+  BOOKINGS {
+    uuid id PK
+    uuid renter_id FK
+    uuid vehicle_id FK
+    timestamp start_at
+    timestamp end_at
+    enum status
+    decimal estimated_price
+  }
+  RENTALS {
+    uuid id PK
+    uuid booking_id FK
+    timestamp started_at
+    timestamp finished_at
+    float start_mileage
+    float end_mileage
+    float start_fuel
+    float end_fuel
+    int driving_score
+    decimal total_price
+  }
+  RENTAL_CHARGES {
+    uuid id PK
+    uuid rental_id FK
+    enum type "BASE | OVERMILEAGE | FUEL | PENALTY"
+    decimal amount
+  }
+  TELEMETRY_POINTS {
+    bigint id PK
+    uuid device_id FK
+    uuid rental_id FK
+    timestamp ts
+    float lat
+    float lon
+    float speed
+    int rpm
+    float fuel_level
+    float coolant_temp
+    float battery_voltage
+  }
+  VEHICLE_EVENTS {
+    bigint id PK
+    uuid device_id FK
+    uuid rental_id FK
+    enum type "ENGINE_START | HARSH_BRAKE | OVERSPEED"
+    timestamp ts
+    json payload
+  }
+  DTC_RECORDS {
+    uuid id PK
+    uuid vehicle_id FK
+    string code
+    timestamp detected_at
+    timestamp resolved_at
+  }
+  PAYMENTS {
+    uuid id PK
+    uuid booking_id FK
+    decimal amount
+    enum status
+  }
+  REVIEWS {
+    uuid id PK
+    uuid rental_id FK
+    uuid author_id FK
+    int rating
+    string comment
+  }
+  RENTAL_PROVIDERS ||--o| BUSINESS_PROFILES : "реквизиты"
+  RENTAL_PROVIDERS ||--o| INDIVIDUAL_PROFILES : "профиль"
+  RENTAL_PROVIDERS ||--o{ PROVIDER_MEMBERS : "сотрудники"
+  USERS ||--o{ PROVIDER_MEMBERS : "состоит"
+  RENTAL_PROVIDERS ||--o{ VEHICLES : "владеет"
+  VEHICLES ||--o{ TARIFFS : "тарифы"
+  VEHICLES |o--o| DEVICES : "оснащён"
+  USERS ||--o{ BOOKINGS : "бронирует"
+  VEHICLES ||--o{ BOOKINGS : "бронь"
+  BOOKINGS ||--o| RENTALS : "аренда"
+  BOOKINGS ||--o{ PAYMENTS : "оплаты"
+  RENTALS ||--o{ RENTAL_CHARGES : "начисления"
+  DEVICES ||--o{ TELEMETRY_POINTS : "передаёт"
+  RENTALS |o--o{ TELEMETRY_POINTS : "трек"
+  DEVICES ||--o{ VEHICLE_EVENTS : "события"
+  VEHICLES ||--o{ DTC_RECORDS : "ошибки"
+  RENTALS ||--o| REVIEWS : "отзыв"
+  USERS ||--o{ REVIEWS : "автор"`},
+
+{ id:'06_providers_classes', title:'Диаграмма классов: типы арендодателей',
+  desc:'Регистрация арендодателя построена на паттерне «Стратегия»: под каждый тип своя стратегия. В дипломе реализован тип BUSINESS. Тип INDIVIDUAL заложен в модели и при выборе возвращает «не поддерживается».',
+  code:`classDiagram
+  direction LR
+  class RentalProvider {
+    +UUID id
+    +ProviderType type
+    +ProviderStatus status
+    +string displayName
+    +number rating
+  }
+  class ProviderType {
+    <<enumeration>>
+    BUSINESS
+    INDIVIDUAL
+  }
+  class BusinessProfile {
+    +string legalName
+    +string taxId
+    +string legalAddress
+    +string bankAccount
+  }
+  class IndividualProfile {
+    <<reserved>>
+    +string verificationStatus
+  }
+  class ProviderRegistrationStrategy {
+    <<interface>>
+    +validate(dto) void
+    +register(dto) RentalProvider
+  }
+  class BusinessRegistrationStrategy {
+    +validate(dto) void
+    +register(dto) RentalProvider
+  }
+  class IndividualRegistrationStrategy {
+    +register(dto) NotImplemented
+  }
+  class ProvidersService {
+    -Map strategies
+    +register(type, dto) RentalProvider
+    +approve(id) void
+  }
+  RentalProvider --> ProviderType
+  RentalProvider "1" --> "0..1" BusinessProfile : profile
+  RentalProvider "1" --> "0..1" IndividualProfile : profile
+  ProviderRegistrationStrategy <|.. BusinessRegistrationStrategy
+  ProviderRegistrationStrategy <|.. IndividualRegistrationStrategy
+  ProvidersService --> ProviderRegistrationStrategy : по type`},
+
+{ id:'07_seq_start_rental', title:'Диаграмма последовательности: начало аренды',
+  desc:'Сервер проверяет бронь и отправляет модулю команду открыть машину. Модуль читает топливо и пробег из ЭБУ и подтверждает. Эти показания сохраняются как стартовые. Во время поездки телеметрия идёт в БД и в реальном времени отображается в браузере.',
+  code:`sequenceDiagram
+  autonumber
+  actor R as Арендатор
+  participant W as Веб-приложение
+  participant A as Backend (NestJS)
+  participant DB as PostgreSQL
+  participant B as MQTT-брокер
+  participant M as Модуль ESP32
+  participant E as ЭБУ (OBD-II)
+  R->>W: Нажимает «Начать аренду»
+  W->>A: POST /rentals/start (bookingId, JWT)
+  A->>DB: Проверить бронь: владелец, статус, время
+  DB-->>A: CONFIRMED
+  A->>B: devices/{id}/cmd: unlock, allowStart
+  B->>M: Команда
+  M->>E: Запрос PID 0x2F (топливо), 0x0D (скорость)
+  E-->>M: Ответ ЭБУ
+  M->>M: Открыть замки, разрешить запуск
+  alt Модуль ответил
+    M->>B: devices/{id}/ack: fuel, mileage, gps
+    B->>A: Подтверждение
+    A->>DB: Создать rental со стартовыми показаниями
+    A-->>W: 201 Аренда начата
+    W-->>R: Экран активной аренды
+  else Нет ответа 15 секунд
+    A-->>W: 504 Модуль недоступен
+    W-->>R: Сообщение об ошибке
+  end
+  loop Каждые 5 секунд во время поездки
+    M->>B: devices/{id}/telemetry
+    B->>A: Телеметрия
+    A->>DB: Сохранить точку
+    A-->>W: WebSocket: позиция и показатели
+  end`},
+
+{ id:'08_seq_finish_rental', title:'Диаграмма последовательности: завершение аренды',
+  desc:'При завершении модуль закрывает машину, блокирует запуск и отдаёт финальные показания. Сервер сравнивает их со стартовыми и рассчитывает итог: время, перепробег, недолив топлива, штрафы за стиль вождения.',
+  code:`sequenceDiagram
+  autonumber
+  actor R as Арендатор
+  participant W as Веб-приложение
+  participant A as Backend (NestJS)
+  participant B as MQTT-брокер
+  participant M as Модуль ESP32
+  participant E as ЭБУ (OBD-II)
+  participant DB as PostgreSQL
+  R->>W: Нажимает «Завершить аренду»
+  W->>A: POST /rentals/{id}/finish
+  A->>B: cmd: lock, blockStart, readNow
+  B->>M: Команда
+  M->>E: Запрос PID: топливо, скорость, коды DTC
+  E-->>M: Значения
+  M->>M: Закрыть замки, запретить запуск
+  M->>B: ack: fuel, mileage, lat, lon
+  B->>A: Финальные показания
+  A->>DB: Тариф, стартовые показания, события поездки
+  DB-->>A: Данные
+  Note over A: Итог = время × тариф<br/>+ перепробег × цена за км<br/>+ недолив топлива<br/>+ штрафы за стиль вождения
+  A->>DB: rental COMPLETED, начисления
+  A->>A: Списание оплаты (mock-платёж)
+  A-->>W: 200 Чек
+  W-->>R: Чек и отчёт о поездке`},
+
+{ id:'09_state_booking', title:'Диаграмма состояний бронирования',
+  desc:'Жизненный цикл брони. Переход в «Активна» возможен только после подтверждения от аппаратного модуля.',
+  code:`stateDiagram-v2
+  direction LR
+  state "Ожидает оплаты" as PENDING_PAYMENT
+  state "Подтверждена" as CONFIRMED
+  state "Активна" as ACTIVE
+  state "Завершение" as FINISHING
+  state "Завершена" as COMPLETED
+  state "Отменена" as CANCELLED
+  state "Неявка" as NO_SHOW
+  [*] --> PENDING_PAYMENT : Создание брони
+  PENDING_PAYMENT --> CONFIRMED : Депозит оплачен
+  PENDING_PAYMENT --> CANCELLED : Отмена или таймаут
+  CONFIRMED --> CANCELLED : Отмена клиентом
+  CONFIRMED --> ACTIVE : Старт, модуль подтвердил
+  CONFIRMED --> NO_SHOW : Аренда не начата
+  ACTIVE --> FINISHING : Завершение аренды
+  FINISHING --> COMPLETED : Расчёт и оплата
+  COMPLETED --> [*]
+  CANCELLED --> [*]
+  NO_SHOW --> [*]`},
+
+{ id:'10_state_provider', title:'Диаграмма состояний арендодателя (бизнес)',
+  desc:'Компания подаёт заявку и может публиковать автомобили только после одобрения администратором платформы.',
+  code:`stateDiagram-v2
+  direction LR
+  state "На проверке" as PENDING
+  state "Активен" as ACTIVE
+  state "Отклонён" as REJECTED
+  state "Заблокирован" as BLOCKED
+  [*] --> PENDING : Заявка компании
+  PENDING --> ACTIVE : Админ одобрил
+  PENDING --> REJECTED : Админ отклонил
+  REJECTED --> PENDING : Повторная заявка
+  ACTIVE --> BLOCKED : Нарушение правил
+  BLOCKED --> ACTIVE : Разблокировка`},
+
+{ id:'11_hw_structure', title:'Структурная схема аппаратного модуля',
+  desc:'Модуль питается от разъёма OBD-II (12 В) через понижающий преобразователь. Связь с ЭБУ идёт по шине CAN через MCP2515. ESP32 опрашивает GPS, акселерометр и RFID, управляет реле и передаёт данные через GSM/LTE-модем.',
+  code:`flowchart LR
+  OBD["Разъём OBD-II<br/>(SAE J1962)"]
+  subgraph BOARD["Аппаратный модуль"]
+    direction TB
+    PWR["DC-DC<br/>12 В → 5 В / 3.3 В"]
+    CAN["CAN-модуль<br/>MCP2515 + TJA1050"]
+    ESP["Микроконтроллер<br/>ESP32"]
+    GPS["GPS<br/>NEO-6M"]
+    GSM["GSM/LTE-модем<br/>SIM800L / A7670"]
+    IMU["Акселерометр<br/>MPU6050"]
+    RFID["RFID<br/>RC522"]
+    REL["Модуль реле<br/>2 канала"]
+    LED["Индикация<br/>LED + зуммер"]
+  end
+  LOCK["Центральный замок"]
+  IGN["Цепь запуска двигателя"]
+  CLOUD["Сервер"]
+  OBD -->|"+12 В, GND<br/>(пины 16, 4, 5)"| PWR
+  OBD <-->|"CAN-H / CAN-L<br/>(пины 6, 14)"| CAN
+  PWR -->|питание| ESP
+  CAN <-->|SPI| ESP
+  GPS -->|UART| ESP
+  GSM <-->|UART| ESP
+  IMU -->|I2C| ESP
+  RFID -->|SPI| ESP
+  ESP -->|GPIO| REL
+  ESP -->|GPIO| LED
+  REL --> LOCK
+  REL --> IGN
+  GSM -.->|MQTT| CLOUD
+  classDef hw fill:#fff4e5,stroke:#d97706,color:#1d2330
+  classDef mcu fill:#fde2c4,stroke:#b45309,stroke-width:2px,color:#1d2330
+  classDef ext fill:#f4f6f9,stroke:#6b7280,color:#1d2330
+  class PWR,CAN,GPS,GSM,IMU,RFID,REL,LED hw
+  class ESP mcu
+  class OBD,LOCK,IGN,CLOUD ext`},
+
+{ id:'12_firmware_algorithm', title:'Алгоритм работы прошивки модуля',
+  desc:'Главный цикл: опрос OBD-II и датчиков, выявление опасных манёвров, буферизация, отправка по MQTT, выполнение команд сервера. Без связи данные копятся во flash-памяти и отправляются после восстановления соединения.',
+  code:`flowchart TD
+  S(["Старт"]) --> I["Инициализация:<br/>CAN, GPS, GSM, IMU, RFID"]
+  I --> C{"Подключение<br/>к сети и MQTT"}
+  C -->|нет| RC["Повтор через 5 с"] --> C
+  C -->|да| L["Главный цикл"]
+  L --> P["Опрос PID OBD-II:<br/>скорость, обороты, топливо,<br/>температура, напряжение"]
+  P --> G["Чтение GPS<br/>и акселерометра"]
+  G --> D{"Резкий манёвр<br/>или превышение?"}
+  D -->|да| EV["Сформировать событие"] --> Q
+  D -->|нет| Q["Записать данные в буфер"]
+  Q --> T{"Прошёл интервал<br/>отправки?"}
+  T -->|нет| CMD
+  T -->|да| N{"Есть связь?"}
+  N -->|да| PUB["Отправить буфер по MQTT"] --> CMD
+  N -->|нет| SAVE["Сохранить во flash"] --> CMD
+  CMD{"Есть команда<br/>от сервера?"}
+  CMD -->|да| EX["Выполнить: lock, unlock,<br/>allowStart, blockStart, readNow"] --> ACK["Отправить подтверждение"] --> DTC
+  CMD -->|нет| DTC["Периодически: чтение<br/>кодов ошибок (режим 03)"]
+  DTC --> L
+  classDef dec fill:#fff8db,stroke:#d4b106,color:#1d2330
+  classDef act fill:#eaf1ff,stroke:#2f5fd0,color:#1d2330
+  class C,D,T,N,CMD dec
+  class I,P,G,EV,Q,PUB,SAVE,EX,ACK,DTC,RC,L act`},
+];
+
+mermaid.initialize({
+  startOnLoad:false, theme:'base', securityLevel:'strict', htmlLabels:false,
+  themeVariables:{
+    fontFamily:'Arial, sans-serif', fontSize:'15px',
+    primaryColor:'#eaf1ff', primaryBorderColor:'#2f5fd0', primaryTextColor:'#1d2330',
+    secondaryColor:'#fff4e5', tertiaryColor:'#f7f9fc', lineColor:'#4a5568',
+    clusterBkg:'#f7f9fc', clusterBorder:'#9aa7bd',
+    noteBkgColor:'#fff8db', noteBorderColor:'#d4b106',
+    actorBkg:'#eaf1ff', actorBorder:'#2f5fd0', edgeLabelBackground:'#ffffff'
+  },
+  flowchart:{ htmlLabels:false, curve:'basis', padding:12, nodeSpacing:40, rankSpacing:55 },
+  sequence:{ mirrorActors:false, actorMargin:40, messageFontSize:14, noteFontSize:14 },
+  er:{ fontSize:13 },
+});
+
+const only = new URLSearchParams(location.search).get('only');
+if (only) {
+  const d = D.find(x => x.id === only);
+  document.querySelectorAll('header,nav,main').forEach(e => e.style.display = 'none');
+  document.documentElement.style.overflow = 'hidden';
+  document.body.style.background = '#fff';
+  const solo = document.createElement('div');
+  solo.style.cssText = 'display:inline-block;padding:24px;background:#fff';
+  document.body.appendChild(solo);
+  const { svg } = await mermaid.render('m_solo', d.code);
+  solo.innerHTML = svg;
+  const el = solo.querySelector('svg'); const vb = el.viewBox.baseVal;
+  el.style.maxWidth = 'none'; el.setAttribute('width', vb.width); el.setAttribute('height', vb.height);
+  D.length = 0;
+}
+
+const nav = document.getElementById('nav'), main = document.getElementById('main'), sp = nav.querySelector('.sp');
+D.forEach((d, i) => {
+  const a = document.createElement('a'); a.href = '#' + d.id; const NAV = ['Архитектура','Варианты использования','Развёртывание','Модули backend','ER-диаграмма','Классы арендодателей','Начало аренды','Завершение аренды','Состояния брони','Состояния арендодателя','Схема модуля','Алгоритм прошивки'];
+  a.textContent = (i + 1) + '. ' + NAV[i];
+  nav.insertBefore(a, sp);
+  const s = document.createElement('section'); s.id = d.id;
+  s.innerHTML = `<div class="head"><h2><span class="num">${i + 1}.</span>${d.title}</h2>
+    <div class="btns"><button data-a="png">PNG</button><button data-a="svg">SVG</button><button data-a="code">Код</button></div></div>
+    <p class="desc">${d.desc}</p><div class="dia" id="d_${d.id}">Рендер…</div>`;
+  s.querySelector('[data-a=png]').onclick = () => png(d.id);
+  s.querySelector('[data-a=svg]').onclick = () => svgFile(d.id);
+  s.querySelector('[data-a=code]').onclick = (e) => copy(d.code, e.target);
+  main.appendChild(s);
+});
+
+for (const d of D) {
+  const el = document.getElementById('d_' + d.id);
+  try { const { svg } = await mermaid.render('m_' + d.id, d.code); el.innerHTML = svg; }
+  catch (e) { el.innerHTML = '<div class="err">Ошибка: ' + (e.message || e) + '</div>'; }
+}
+
+function prep(id) {
+  const svg = document.querySelector('#d_' + id + ' svg');
+  const vb = svg.viewBox.baseVal;
+  const c = svg.cloneNode(true);
+  c.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+  c.setAttribute('width', vb.width); c.setAttribute('height', vb.height);
+  c.removeAttribute('style');
+  const bg = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+  bg.setAttribute('x', vb.x); bg.setAttribute('y', vb.y); bg.setAttribute('width', vb.width); bg.setAttribute('height', vb.height); bg.setAttribute('fill', '#fff');
+  c.insertBefore(bg, c.firstChild);
+  return { s: new XMLSerializer().serializeToString(c), w: vb.width, h: vb.height };
+}
+function dl(blob, name) {
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name;
+  document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 3000);
+}
+function svgFile(id) { dl(new Blob([prep(id).s], { type:'image/svg+xml' }), id + '.svg'); }
+async function png(id) {
+  const { s, w, h } = prep(id);
+  const scale = Math.min(3, 9000 / Math.max(w, h));
+  const img = new Image(); img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(s);
+  await img.decode();
+  const cv = document.createElement('canvas'); cv.width = Math.round(w * scale); cv.height = Math.round(h * scale);
+  const x = cv.getContext('2d'); x.fillStyle = '#fff'; x.fillRect(0, 0, cv.width, cv.height); x.drawImage(img, 0, 0, cv.width, cv.height);
+  await new Promise(r => cv.toBlob(b => { dl(b, id + '.png'); r(); }, 'image/png'));
+}
+function copy(text, btn) {
+  const done = () => { const t = btn.textContent; btn.textContent = 'Скопировано'; setTimeout(() => btn.textContent = t, 1500); };
+  if (navigator.clipboard && window.isSecureContext) navigator.clipboard.writeText(text).then(done);
+  else { const ta = document.createElement('textarea'); ta.value = text; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); ta.remove(); done(); }
+}
+document.getElementById('allPng').onclick = async () => { for (const d of D) { await png(d.id); await new Promise(r => setTimeout(r, 400)); } };
+</script>
+</body>
+</html>

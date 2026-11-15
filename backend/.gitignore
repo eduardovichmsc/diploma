@@ -1,0 +1,28 @@
+# Зависимости
+node_modules/
+
+# Сборка
+dist/
+*.tsbuildinfo
+
+# Переменные окружения (секреты JWT, пароль БД)
+.env
+.env.*
+!.env.example
+
+# Логи
+logs/
+*.log
+npm-debug.log*
+
+# Тесты
+coverage/
+
+# IDE и ОС
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.swp
+.DS_Store
+Thumbs.db
+desktop.ini

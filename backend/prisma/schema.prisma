@@ -1,0 +1,371 @@
+// Схема базы данных платформы аренды автомобилей с аппаратным модулем.
+// Соответствует ER-диаграмме из diagrams/diagrams.html (диаграмма 5).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ───────────── Перечисления ─────────────
+
+enum PlatformRole {
+  USER
+  ADMIN
+}
+
+enum ProviderType {
+  BUSINESS // реализуется в дипломе
+  INDIVIDUAL // заложено в модели, регистрация не поддерживается
+}
+
+enum ProviderStatus {
+  PENDING
+  ACTIVE
+  REJECTED
+  BLOCKED
+}
+
+enum MemberRole {
+  OWNER
+  MANAGER
+}
+
+enum Transmission {
+  MANUAL
+  AUTOMATIC
+}
+
+enum FuelType {
+  PETROL
+  DIESEL
+  HYBRID
+  ELECTRIC
+  GAS
+}
+
+enum VehicleStatus {
+  AVAILABLE
+  RENTED
+  MAINTENANCE
+}
+
+enum BookingStatus {
+  PENDING_PAYMENT
+  CONFIRMED
+  ACTIVE
+  FINISHING
+  COMPLETED
+  CANCELLED
+  NO_SHOW
+}
+
+enum ChargeType {
+  BASE
+  OVERMILEAGE
+  FUEL
+  PENALTY
+}
+
+enum PaymentKind {
+  DEPOSIT
+  FINAL
+}
+
+enum PaymentStatus {
+  PENDING
+  SUCCEEDED
+  FAILED
+  REFUNDED
+}
+
+enum EventType {
+  ENGINE_START
+  ENGINE_STOP
+  HARSH_BRAKE
+  HARSH_ACCEL
+  OVERSPEED
+  DTC_DETECTED
+  OVERHEAT
+  LOW_BATTERY
+  GEOFENCE_EXIT
+}
+
+// ───────────── Пользователи и арендодатели ─────────────
+
+model User {
+  id              String       @id @default(uuid())
+  email           String       @unique
+  passwordHash    String
+  fullName        String
+  phone           String?
+  driverLicenseNo String?
+  role            PlatformRole @default(USER)
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  memberships ProviderMember[]
+  bookings    Booking[]
+  reviews     Review[]
+
+  @@map("users")
+}
+
+model RentalProvider {
+  id          String         @id @default(uuid())
+  type        ProviderType
+  status      ProviderStatus @default(PENDING)
+  displayName String
+  rating      Float          @default(0)
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  business   BusinessProfile?
+  individual IndividualProfile?
+  members    ProviderMember[]
+  vehicles   Vehicle[]
+  geofences  Geofence[]
+
+  @@map("rental_providers")
+}
+
+model BusinessProfile {
+  providerId   String         @id
+  provider     RentalProvider @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  legalName    String
+  taxId        String         @unique
+  legalAddress String
+  bankAccount  String
+  contactEmail String?
+  contactPhone String?
+
+  @@map("business_profiles")
+}
+
+/// Зарезервировано под арендодателей-физлиц (в дипломе не реализуется).
+model IndividualProfile {
+  providerId         String         @id
+  provider           RentalProvider @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  verificationStatus String         @default("NOT_SUPPORTED")
+
+  @@map("individual_profiles")
+}
+
+model ProviderMember {
+  id         String         @id @default(uuid())
+  providerId String
+  provider   RentalProvider @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  userId     String
+  user       User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role       MemberRole
+  createdAt  DateTime       @default(now())
+
+  @@unique([providerId, userId])
+  @@map("provider_members")
+}
+
+// ───────────── Автопарк ─────────────
+
+model Vehicle {
+  id           String        @id @default(uuid())
+  providerId   String
+  provider     RentalProvider @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  brand        String
+  model        String
+  year         Int
+  plateNumber  String        @unique
+  vin          String        @unique
+  transmission Transmission
+  fuelType     FuelType
+  seats        Int
+  city         String
+  description  String?
+  photoUrls    String[]
+  status       VehicleStatus @default(AVAILABLE)
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  tariff     Tariff?
+  device     Device?
+  bookings   Booking[]
+  dtcRecords DtcRecord[]
+
+  @@index([providerId])
+  @@index([city])
+  @@map("vehicles")
+}
+
+model Tariff {
+  id                  String  @id @default(uuid())
+  vehicleId           String  @unique
+  vehicle             Vehicle @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+  pricePerHour        Decimal @db.Decimal(10, 2)
+  pricePerDay         Decimal @db.Decimal(10, 2)
+  kmLimitPerDay       Int
+  overmileagePrice    Decimal @db.Decimal(10, 2) // за 1 км сверх лимита
+  fuelPricePerPercent Decimal @db.Decimal(10, 2) // за 1 % недолива топлива
+  deposit             Decimal @db.Decimal(10, 2)
+
+  @@map("tariffs")
+}
+
+// ───────────── Аппаратные модули и телематика ─────────────
+
+model Device {
+  id              String    @id @default(uuid())
+  serial          String    @unique
+  secretHash      String
+  vehicleId       String?   @unique
+  vehicle         Vehicle?  @relation(fields: [vehicleId], references: [id], onDelete: SetNull)
+  firmwareVersion String?
+  online          Boolean   @default(false)
+  lastSeenAt      DateTime?
+  createdAt       DateTime  @default(now())
+
+  telemetry TelemetryPoint[]
+  events    VehicleEvent[]
+
+  @@map("devices")
+}
+
+model TelemetryPoint {
+  id             BigInt   @id @default(autoincrement())
+  deviceId       String
+  device         Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  rentalId       String?
+  rental         Rental?  @relation(fields: [rentalId], references: [id], onDelete: SetNull)
+  ts             DateTime
+  lat            Float
+  lon            Float
+  speed          Float
+  rpm            Int?
+  fuelLevel      Float?
+  coolantTemp    Float?
+  batteryVoltage Float?
+  mileage        Float?
+
+  @@index([deviceId, ts])
+  @@index([rentalId, ts])
+  @@map("telemetry_points")
+}
+
+model VehicleEvent {
+  id       BigInt    @id @default(autoincrement())
+  deviceId String
+  device   Device    @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  rentalId String?
+  rental   Rental?   @relation(fields: [rentalId], references: [id], onDelete: SetNull)
+  type     EventType
+  ts       DateTime
+  payload  Json?
+
+  @@index([deviceId, ts])
+  @@index([rentalId])
+  @@map("vehicle_events")
+}
+
+model DtcRecord {
+  id         String    @id @default(uuid())
+  vehicleId  String
+  vehicle    Vehicle   @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+  code       String
+  detectedAt DateTime  @default(now())
+  resolvedAt DateTime?
+
+  @@index([vehicleId])
+  @@map("dtc_records")
+}
+
+model Geofence {
+  id         String         @id @default(uuid())
+  providerId String
+  provider   RentalProvider @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  name       String
+  polygon    Json // массив точек [[lat, lon], ...]
+
+  @@map("geofences")
+}
+
+// ───────────── Бронирование и аренда ─────────────
+
+model Booking {
+  id             String        @id @default(uuid())
+  renterId       String
+  renter         User          @relation(fields: [renterId], references: [id])
+  vehicleId      String
+  vehicle        Vehicle       @relation(fields: [vehicleId], references: [id])
+  startAt        DateTime
+  endAt          DateTime
+  status         BookingStatus @default(PENDING_PAYMENT)
+  estimatedPrice Decimal       @db.Decimal(10, 2)
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  rental   Rental?
+  payments Payment[]
+
+  @@index([vehicleId, startAt, endAt])
+  @@index([renterId])
+  @@map("bookings")
+}
+
+model Rental {
+  id           String    @id @default(uuid())
+  bookingId    String    @unique
+  booking      Booking   @relation(fields: [bookingId], references: [id])
+  startedAt    DateTime  @default(now())
+  finishedAt   DateTime?
+  startMileage Float
+  endMileage   Float?
+  startFuel    Float
+  endFuel      Float?
+  drivingScore Int?
+  totalPrice   Decimal?  @db.Decimal(10, 2)
+
+  charges   RentalCharge[]
+  telemetry TelemetryPoint[]
+  events    VehicleEvent[]
+  review    Review?
+
+  @@map("rentals")
+}
+
+model RentalCharge {
+  id          String     @id @default(uuid())
+  rentalId    String
+  rental      Rental     @relation(fields: [rentalId], references: [id], onDelete: Cascade)
+  type        ChargeType
+  amount      Decimal    @db.Decimal(10, 2)
+  description String
+
+  @@map("rental_charges")
+}
+
+model Payment {
+  id          String        @id @default(uuid())
+  bookingId   String
+  booking     Booking       @relation(fields: [bookingId], references: [id])
+  kind        PaymentKind
+  amount      Decimal       @db.Decimal(10, 2)
+  status      PaymentStatus @default(PENDING)
+  providerRef String?
+  createdAt   DateTime      @default(now())
+
+  @@map("payments")
+}
+
+model Review {
+  id        String   @id @default(uuid())
+  rentalId  String   @unique
+  rental    Rental   @relation(fields: [rentalId], references: [id])
+  authorId  String
+  author    User     @relation(fields: [authorId], references: [id])
+  rating    Int
+  comment   String?
+  createdAt DateTime @default(now())
+
+  @@map("reviews")
+}
